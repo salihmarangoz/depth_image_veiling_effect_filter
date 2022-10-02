@@ -15,7 +15,7 @@ class DepthImageVeilingEffectFilter
 {
 public:
     DepthImageVeilingEffectFilter(double threshold=80.0);
-    sensor_msgs::ImagePtr process(const sensor_msgs::ImageConstPtr& input, sensor_msgs::ImagePtr debug=nullptr);
+    sensor_msgs::ImagePtr process(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug=nullptr);
     void setThreshold(double threshold);
 private:
     double m_threshold;
@@ -30,8 +30,9 @@ public:
     void reconfigureCallback(DepthImageVeilingEffectFilterConfig &config, uint32_t level);
 
     image_transport::ImageTransport it;
-    image_transport::CameraSubscriber sub;
     image_transport::CameraPublisher pub;
+    image_transport::CameraPublisher pub_debug;
+    image_transport::CameraSubscriber sub;
     dynamic_reconfigure::Server<DepthImageVeilingEffectFilterConfig> dynrec_server;
     //DepthImageVeilingEffectFilterConfig config;
     DepthImageVeilingEffectFilter filter;
