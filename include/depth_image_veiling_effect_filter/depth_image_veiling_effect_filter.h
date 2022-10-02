@@ -1,11 +1,12 @@
 #ifndef __DEPTH_IMAGE_VEILING_EFFECT_FILTER__
 #define __DEPTH_IMAGE_VEILING_EFFECT_FILTER__
 
-#include <image_geometry/pinhole_camera_model.h>
+#include <depth_image_veiling_effect_filter/DepthImageVeilingEffectFilterConfig.h>
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
 #include <dynamic_reconfigure/server.h>
-#include <depth_image_veiling_effect_filter/DepthImageVeilingEffectFilterConfig.h>
+
 
 namespace depth_image_veiling_effect_filter
 {
@@ -16,9 +17,11 @@ class DepthImageVeilingEffectFilter
 public:
     DepthImageVeilingEffectFilter(double threshold=80.0);
     sensor_msgs::ImagePtr process(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug=nullptr);
+    template<typename T> sensor_msgs::ImagePtr process_(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug=nullptr);
+
     void setThreshold(double threshold);
 private:
-    double m_threshold;
+    double threshold_;
 };
 
 
