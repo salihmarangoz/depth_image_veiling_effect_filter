@@ -94,7 +94,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 ## Generate dynamic reconfigure parameters in the 'cfg' folder
 generate_dynamic_reconfigure_options(
-  cfg/Config.cfg
+  cfg/DepthImageVeilingEffectFilter.cfg
 )
 
 ###################################
@@ -109,7 +109,7 @@ generate_dynamic_reconfigure_options(
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES depth_image_veiling_effect_filter
-  CATKIN_DEPENDS depth_image_proc image_geometry image_transport roscpp rospy sensor_msgs std_msgs
+  CATKIN_DEPENDS depth_image_proc image_geometry image_transport roscpp rospy sensor_msgs std_msgs dynamic_reconfigure
 #  DEPENDS system_lib
 )
 
@@ -153,6 +153,10 @@ add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catk
 target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   ${PROJECT_NAME}
+)
+
+target_link_libraries(${PROJECT_NAME}
+  ${catkin_LIBRARIES}
 )
 
 #############

@@ -4,6 +4,8 @@
 #include <image_geometry/pinhole_camera_model.h>
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/Image.h>
+#include <dynamic_reconfigure/server.h>
+#include <depth_image_veiling_effect_filter/DepthImageVeilingEffectFilterConfig.h>
 
 namespace depth_image_veiling_effect_filter
 {
@@ -20,12 +22,14 @@ public:
 class DepthImageVeilingEffectFilterNode
 {
 public:
-    DepthImageVeilingEffectFilterNode(ros::NodeHandle &nhp);
+    DepthImageVeilingEffectFilterNode(ros::NodeHandle &nh, ros::NodeHandle &pnh);
     void imageCallback(const sensor_msgs::ImageConstPtr& msg);
+    void reconfigureCallback(DepthImageVeilingEffectFilterConfig &config, uint32_t level);
 
     image_transport::ImageTransport it;
     image_transport::Subscriber sub;
-
+    dynamic_reconfigure::Server<DepthImageVeilingEffectFilterConfig> dynrec_server;
+    //DepthImageVeilingEffectFilterConfig config;
 };
 
 } // namespace depth_image_veiling_effect_filter
