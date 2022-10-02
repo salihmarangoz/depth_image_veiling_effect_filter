@@ -14,8 +14,11 @@ namespace depth_image_veiling_effect_filter
 class DepthImageVeilingEffectFilter
 {
 public:
-    DepthImageVeilingEffectFilter();
-    void process();
+    DepthImageVeilingEffectFilter(double threshold=80.0);
+    sensor_msgs::ImagePtr process(const sensor_msgs::ImageConstPtr& input, sensor_msgs::ImagePtr debug=nullptr);
+    void setThreshold(double threshold);
+private:
+    double m_threshold;
 };
 
 
@@ -23,13 +26,15 @@ class DepthImageVeilingEffectFilterNode
 {
 public:
     DepthImageVeilingEffectFilterNode(ros::NodeHandle &nh, ros::NodeHandle &pnh);
-    void imageCallback(const sensor_msgs::ImageConstPtr& msg);
+    void imageCallback(const sensor_msgs::ImageConstPtr& msg, const sensor_msgs::CameraInfoConstPtr& info);
     void reconfigureCallback(DepthImageVeilingEffectFilterConfig &config, uint32_t level);
 
     image_transport::ImageTransport it;
-    image_transport::Subscriber sub;
+    image_transport::CameraSubscriber sub;
+    image_transport::CameraPublisher pub;
     dynamic_reconfigure::Server<DepthImageVeilingEffectFilterConfig> dynrec_server;
     //DepthImageVeilingEffectFilterConfig config;
+    DepthImageVeilingEffectFilter filter;
 };
 
 } // namespace depth_image_veiling_effect_filter
