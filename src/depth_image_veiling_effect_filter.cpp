@@ -52,6 +52,7 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     output->data.resize(output->height * output->step);
     depth_image_proc::DepthTraits<T>::initializeBuffer(output->data);
 
+
     // Prepare debug image
     if (debug!=nullptr)
     {
@@ -65,6 +66,7 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         depth_image_proc::DepthTraits<T>::initializeBuffer(debug->data);
     }
 
+
     // Load camera model and extract all the parameters we need
     image_geometry::PinholeCameraModel depth_model;
     depth_model.fromCameraInfo(info);
@@ -72,6 +74,8 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     double inv_depth_fy = 1.0 / depth_model.fy();
     double depth_cx = depth_model.cx(), depth_cy = depth_model.cy();
     double depth_Tx = depth_model.Tx(), depth_Ty = depth_model.Ty();
+    unsigned width = input->width;
+    unsigned height = input->height;
 
     // Cast data pointers
     const T* input_data = reinterpret_cast<const T*>(&input->data[0]);
@@ -82,39 +86,51 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         debug_data = reinterpret_cast<T*>(&debug->data[0]);
     }
 
+
+    // convert to xyz
+    std::vector<Eigen::Vector3d> input_xyz;
+    input_xyz.reserve(height * width);
+    Eigen::Vector3d bad_point(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+
+    for (unsigned v = 0; v < height; ++v)
+    {
+        for (unsigned u = 0; u < width; ++u)
+        {
+            const T& raw_input_depth = input_data[v*width + u];
+            if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
+            {
+                input_xyz.push_back(bad_point);
+            }
+            else
+            {
+                double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
+                Eigen::Vector3d point(((u - depth_cx)*depth - depth_Tx) * inv_depth_fx,
+                                      ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy,
+                                      depth);
+                input_xyz.push_back(point);
+            }
+        }
+    }
+
+
     // Apply the filter
     int u_plus[] = {0, -1, -1, -1};
     int v_plus[] = {1, 1, 0, -1};
-    for (unsigned v = 1; v < input->height-1; ++v)
+    for (unsigned v = 1; v < height-1; ++v)
     {
-        for (unsigned u = 1; u < input->width; ++u)
+        for (unsigned u = 1; u < width-1; ++u)
         {
-            const T& raw_input_depth = input_data[v*input->width + u];
-            if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
-            {
-                continue;
-            }
-            double d0 = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
-
-            T& raw_output_depth = output_data[v*input->width + u]; // input->width == output->width
-
-            Eigen::Vector3d p0;
-            p0 << ((u - depth_cx)*d0 - depth_Tx) * inv_depth_fx,
-                       ((v - depth_cy)*d0 - depth_Ty) * inv_depth_fy,
-                       d0;
-            //p0.normalize();
-
             double min_angle = 999;
             for (int i=0; i<4; i++)
             {
-                const T& raw_input_other_depth = input_data[(v + v_plus[i])*input->width + u + u_plus[i]];
-                double d1 = depth_image_proc::DepthTraits<T>::toMeters(raw_input_other_depth);
+                Eigen::Vector3d &p0 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]];
+                Eigen::Vector3d &p1 = input_xyz[(v - v_plus[i])*width + u - u_plus[i]];
 
-                Eigen::Vector3d p1;
-                p1 << (((u + u_plus[i]) - depth_cx)*d1 - depth_Tx) * inv_depth_fx,
-                        (((v + v_plus[i]) - depth_cy)*d1 - depth_Ty) * inv_depth_fy,
-                        d1;
-                //p1.normalize();
+                if (std::isnan(p0(0)) || std::isnan(p1(0)))
+                {
+                    min_angle = 999;
+                    break;
+                }
 
                 double angle = std::abs(std::acos(p0.dot(p0-p1)/p0.norm()/(p0-p1).norm()));
                 if (std::isnan(angle)) min_angle = 0.0; // todo
@@ -125,26 +141,22 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
             {
                 if (debug!=nullptr)
                 {
-                    T& raw_debug_depth = debug_data[v*input->width + u]; // input->width == output->width
-                    raw_debug_depth = depth_image_proc::DepthTraits<T>::fromMeters(d0);
+                    debug_data[v*width + u] = input_data[(v)*width + u];
                 }
 
                 // todo
-                for (int i=0; i<4; i++)
+                for (int i=-1; i<1; i++)
                 {
-                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
-                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
-                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
-                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
+                    for (int j=-1; j<1; j++)
+                    {
+                        output_data[(v + i)*width + u + j] = 0; // todo for float
+                    }
                 }
-
             }
             else
             {
-                raw_output_depth = depth_image_proc::DepthTraits<T>::fromMeters(d0);
+                output_data[v*width + u] = input_data[v*width + u];
             }
-            
-
         }
     }
     
