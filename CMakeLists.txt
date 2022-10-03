@@ -20,6 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
+find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -153,10 +154,12 @@ add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catk
 target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   ${PROJECT_NAME}
+  Eigen3::Eigen
 )
 
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
+  Eigen3::Eigen
 )
 
 #############

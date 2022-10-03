@@ -3,6 +3,7 @@
 #include "depth_image_veiling_effect_filter/depth_image_veiling_effect_filter.h"
 #include <depth_image_proc/depth_traits.h>
 #include <image_geometry/pinhole_camera_model.h>
+#include <Eigen/Dense>
 
 namespace depth_image_veiling_effect_filter
 {
@@ -82,37 +83,67 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     }
 
     // Apply the filter
-    for (unsigned v = 0; v < input->height-1; ++v)
+    int u_plus[] = {0, -1, -1, -1};
+    int v_plus[] = {1, 1, 0, -1};
+    for (unsigned v = 1; v < input->height-1; ++v)
     {
-        for (unsigned u = 0; u < input->width-1; ++u)
+        for (unsigned u = 1; u < input->width; ++u)
         {
             const T& raw_input_depth = input_data[v*input->width + u];
-            const T& raw_input_next1_depth = input_data[v*input->width + u + 1];
-            const T& raw_input_next2_depth = input_data[(v+1)*input->width + u];
-            T& raw_output_depth = output_data[v*input->width + u]; // input->width == output->width
-            
-
             if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
             {
                 continue;
             }
+            double d0 = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
 
-            double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
-            double next1_depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_next1_depth);
-            double next2_depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_next2_depth);
+            T& raw_output_depth = output_data[v*input->width + u]; // input->width == output->width
 
-            if (std::abs(depth-next1_depth) > threshold_/100.0 || std::abs(depth-next2_depth) > threshold_/100.0)
+            Eigen::Vector3d p0;
+            p0 << ((u - depth_cx)*d0 - depth_Tx) * inv_depth_fx,
+                       ((v - depth_cy)*d0 - depth_Ty) * inv_depth_fy,
+                       d0;
+            //p0.normalize();
+
+            double min_angle = 999;
+            for (int i=0; i<4; i++)
+            {
+                const T& raw_input_other_depth = input_data[(v + v_plus[i])*input->width + u + u_plus[i]];
+                double d1 = depth_image_proc::DepthTraits<T>::toMeters(raw_input_other_depth);
+
+                Eigen::Vector3d p1;
+                p1 << (((u + u_plus[i]) - depth_cx)*d1 - depth_Tx) * inv_depth_fx,
+                        (((v + v_plus[i]) - depth_cy)*d1 - depth_Ty) * inv_depth_fy,
+                        d1;
+                //p1.normalize();
+
+                double angle = std::abs(std::acos(p0.dot(p0-p1)/p0.norm()/(p0-p1).norm()));
+                if (std::isnan(angle)) min_angle = 0.0; // todo
+                if (angle < min_angle) min_angle = angle;
+            }
+
+            if (min_angle < threshold_)
             {
                 if (debug!=nullptr)
                 {
                     T& raw_debug_depth = debug_data[v*input->width + u]; // input->width == output->width
-                    raw_debug_depth = depth_image_proc::DepthTraits<T>::fromMeters(depth);
+                    raw_debug_depth = depth_image_proc::DepthTraits<T>::fromMeters(d0);
                 }
+
+                // todo
+                for (int i=0; i<4; i++)
+                {
+                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
+                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
+                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
+                    output_data[(v + v_plus[i])*input->width + u + u_plus[i]] = 0;
+                }
+
             }
             else
             {
-                raw_output_depth = depth_image_proc::DepthTraits<T>::fromMeters(depth);
+                raw_output_depth = depth_image_proc::DepthTraits<T>::fromMeters(d0);
             }
+            
 
         }
     }
