@@ -58,6 +58,7 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>dynamic_reconfigure</depend>
+  <depend>pcl_ros</depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

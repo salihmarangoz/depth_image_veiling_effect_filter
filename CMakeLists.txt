@@ -16,11 +16,15 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
   dynamic_reconfigure
+  pcl_ros
 )
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
+find_package(PCL REQUIRED)
+
+add_definitions(${PCL_DEFINITIONS})
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -111,7 +115,7 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES depth_image_veiling_effect_filter
   CATKIN_DEPENDS depth_image_proc image_geometry image_transport roscpp rospy sensor_msgs std_msgs dynamic_reconfigure
-#  DEPENDS system_lib
+  DEPENDS PCL
 )
 
 ###########
@@ -123,6 +127,7 @@ catkin_package(
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -155,11 +160,13 @@ target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   ${PROJECT_NAME}
   Eigen3::Eigen
+  ${PCL_LIBRARIES}
 )
 
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
   Eigen3::Eigen
+  ${PCL_LIBRARIES}
 )
 
 #############

@@ -4,6 +4,8 @@
 #include <depth_image_proc/depth_traits.h>
 #include <image_geometry/pinhole_camera_model.h>
 #include <Eigen/Dense>
+#include <pcl/range_image/range_image_planar.h>
+#include <pcl/features/range_image_border_extractor.h>
 
 namespace depth_image_veiling_effect_filter
 {
@@ -86,7 +88,56 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         debug_data = reinterpret_cast<T*>(&debug->data[0]);
     }
 
+    /*
+    // Filter using pcl::RangeImagePlanar::getImpactAngleImageBasedOnLocalNormals()
+    pcl::RangeImagePlanar rip;
+    rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
+    float* angles = rip.getImpactAngleImageBasedOnLocalNormals(5);
+    for (int i=0; i<width*height; i++)
+    {
+        if (angles[i] > threshold_)
+        {
+            output_data[i] = input_data[i];
+        }
+        else
+        {
+            debug_data[i] = input_data[i];
+        }
+        
+    }
+    delete angles;
+    */
 
+    // Filter using pcl::RangeImagePlanar::getSurfaceChangeImage() // (not implemented!)
+
+    pcl::RangeImagePlanar rip;
+    rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
+    pcl::RangeImageBorderExtractor ribe;
+    ribe.setRangeImage(&rip);
+    float* angles = ribe.getSurfaceChangeScores();
+    
+    for (int i=0; i<width*height; i++)
+    {
+        /*
+        if (angles[i] > threshold_)
+        {
+            output_data[i] = input_data[i];
+        }
+        else
+        {
+            debug_data[i] = input_data[i];
+        }
+        */
+        //output_data[i] = angles[i]*1000;
+        
+    }
+    printf("%d ", angles);
+    //delete angles;
+
+    
+    
+
+    /*
     // convert to xyz
     std::vector<Eigen::Vector3d> input_xyz;
     input_xyz.reserve(height * width);
@@ -159,6 +210,7 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
             }
         }
     }
+    */
     
     return output;
 }
