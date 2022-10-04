@@ -88,11 +88,11 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         debug_data = reinterpret_cast<T*>(&debug->data[0]);
     }
 
-    /*
+
     // Filter using pcl::RangeImagePlanar::getImpactAngleImageBasedOnLocalNormals()
     pcl::RangeImagePlanar rip;
     rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
-    float* angles = rip.getImpactAngleImageBasedOnLocalNormals(5);
+    float* angles = rip.getImpactAngleImageBasedOnLocalNormals(1);
     for (int i=0; i<width*height; i++)
     {
         if (angles[i] > threshold_)
@@ -106,10 +106,10 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         
     }
     delete angles;
-    */
 
     // Filter using pcl::RangeImagePlanar::getSurfaceChangeImage() // (not implemented!)
 
+    /*
     pcl::RangeImagePlanar rip;
     rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
     pcl::RangeImageBorderExtractor ribe;
@@ -118,7 +118,6 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     
     for (int i=0; i<width*height; i++)
     {
-        /*
         if (angles[i] > threshold_)
         {
             output_data[i] = input_data[i];
@@ -127,15 +126,12 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         {
             debug_data[i] = input_data[i];
         }
-        */
         //output_data[i] = angles[i]*1000;
-        
     }
     printf("%d ", angles);
     //delete angles;
+    */
 
-    
-    
 
     /*
     // convert to xyz
