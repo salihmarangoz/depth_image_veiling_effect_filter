@@ -15,13 +15,17 @@ namespace depth_image_veiling_effect_filter
 class DepthImageVeilingEffectFilter
 {
 public:
-    DepthImageVeilingEffectFilter(double threshold=80.0);
+    DepthImageVeilingEffectFilter(double threshold=0.2);
     sensor_msgs::ImagePtr process(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug=nullptr);
     template<typename T> sensor_msgs::ImagePtr process_(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug=nullptr);
 
     void setThreshold(double threshold);
+    void setMethod(int method);
+    void setK(int k);
 private:
     double threshold_;
+    int k_;
+    int method_;
 };
 
 

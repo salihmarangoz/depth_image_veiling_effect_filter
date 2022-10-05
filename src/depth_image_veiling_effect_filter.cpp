@@ -21,6 +21,16 @@ void DepthImageVeilingEffectFilter::setThreshold(double threshold)
     threshold_ = threshold;
 }
 
+void DepthImageVeilingEffectFilter::setK(int k)
+{
+    k_ = k;
+}
+
+void DepthImageVeilingEffectFilter::setMethod(int method)
+{
+    method_ = method;
+}
+
 sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug)
 {
     // TODO: check only pinhole camera model is supported
@@ -88,126 +98,150 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         debug_data = reinterpret_cast<T*>(&debug->data[0]);
     }
 
-
+    //---------------------------------------------------------------------------------------------------------------
     // Filter using pcl::RangeImagePlanar::getImpactAngleImageBasedOnLocalNormals()
-    pcl::RangeImagePlanar rip;
-    rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
-    float* angles = rip.getImpactAngleImageBasedOnLocalNormals(1);
-    for (int i=0; i<width*height; i++)
+    //---------------------------------------------------------------------------------------------------------------
+    if (method_ == 0)
     {
-        if (angles[i] > threshold_)
+        pcl::RangeImagePlanar rip;
+        rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
+        float* angles = rip.getImpactAngleImageBasedOnLocalNormals(k_);
+        for (int i=0; i<width*height; i++)
         {
-            output_data[i] = input_data[i];
+            if (angles[i] > threshold_) // possibly handles nan values
+            {
+                output_data[i] = input_data[i];
+            }
+            else
+            {
+                if (debug!=nullptr)
+                    debug_data[i] = input_data[i];
+            }
+            
         }
-        else
-        {
-            debug_data[i] = input_data[i];
-        }
-        
+        delete[] angles;
     }
-    delete angles;
 
-    // Filter using pcl::RangeImagePlanar::getSurfaceChangeImage() // (not implemented!)
+    //---------------------------------------------------------------------------------------------------------------
+    // Filter using custom method
+    //---------------------------------------------------------------------------------------------------------------
 
+    if (method_ == 1)
+    {
+        // convert to xyz
+        std::vector<Eigen::Vector3d> input_xyz;
+        input_xyz.reserve(height * width);
+        Eigen::Vector3d bad_point(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+
+        for (unsigned v = 0; v < height; ++v)
+        {
+            for (unsigned u = 0; u < width; ++u)
+            {
+                const T& raw_input_depth = input_data[v*width + u];
+                if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
+                {
+                    input_xyz.push_back(bad_point);
+                }
+                else
+                {
+                    double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
+                    Eigen::Vector3d point(((u - depth_cx)*depth - depth_Tx) * inv_depth_fx,
+                                          ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy,
+                                          depth);
+                    input_xyz.push_back(point);
+                }
+            }
+        }
+
+        // start time
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        // Apply the filter
+        int u_plus[] = {0, -1, -1, -1};
+        int v_plus[] = {1, 1, 0, -1};
+        for (unsigned v = 1; v < height-1; ++v)
+        {
+            for (unsigned u = 1; u < width-1; ++u)
+            {
+                double min_angle = 999;
+                for (int i=0; i<4; i++)
+                {
+                    Eigen::Vector3d &p0 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]];
+                    //Eigen::Vector3d &p1 = input_xyz[(v - v_plus[i])*width + u - u_plus[i]]; // todo?
+                    Eigen::Vector3d &p1 = input_xyz[(v)*width + u];
+
+                    if (std::isnan(p0(0)) || std::isnan(p1(0)))
+                    {
+                        min_angle = 999;
+                        break;
+                    }
+
+                    double angle = std::abs(std::acos(p0.dot(p0-p1)/p0.norm()/(p0-p1).norm()));
+                    if (std::isnan(angle)) min_angle = 0.0; // todo
+                    if (angle < min_angle) min_angle = angle;
+                }
+
+                if (min_angle < threshold_)
+                {
+                    if (debug!=nullptr)
+                    {
+                        debug_data[v*width + u] = input_data[(v)*width + u];
+                    }
+
+                    // todo
+                    for (int i=-1; i<1; i++)
+                    {
+                        for (int j=-1; j<1; j++)
+                        {
+                            output_data[(v + i)*width + u + j] = 0; // todo for float
+                        }
+                    }
+                }
+                else
+                {
+                    output_data[v*width + u] = input_data[v*width + u];
+                }
+            }
+        }
+
+        // end time
+        auto end_time = std::chrono::high_resolution_clock::now();
+        printf("custom method took %d ms.\n", std::chrono::duration_cast<std::chrono::milliseconds>(end_time-start_time).count());
+    }
+
+    //---------------------------------------------------------------------------------------------------------------
+    // Filter using pcl::RangeImageBorderExtractor
+    // Needs compiling PCL:
+    // Download PCL 1.10.0, comment lines 152 and 153 in range_image_border_extractor.cpp, compile, and install
+    //---------------------------------------------------------------------------------------------------------------
     /*
     pcl::RangeImagePlanar rip;
     rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
     pcl::RangeImageBorderExtractor ribe;
     ribe.setRangeImage(&rip);
-    float* angles = ribe.getSurfaceChangeScores();
-    
-    for (int i=0; i<width*height; i++)
+    pcl::PointCloud<pcl::BorderDescription> border_descriptions;
+    border_descriptions.points.reserve(width*height);
+    ribe.compute (border_descriptions);
+
+    for (int y=0; y< height; ++y)
     {
-        if (angles[i] > threshold_)
+        for (int x=0; x< width; ++x)
         {
-            output_data[i] = input_data[i];
-        }
-        else
-        {
-            debug_data[i] = input_data[i];
-        }
-        //output_data[i] = angles[i]*1000;
-    }
-    printf("%d ", angles);
-    //delete angles;
-    */
-
-
-    /*
-    // convert to xyz
-    std::vector<Eigen::Vector3d> input_xyz;
-    input_xyz.reserve(height * width);
-    Eigen::Vector3d bad_point(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-
-    for (unsigned v = 0; v < height; ++v)
-    {
-        for (unsigned u = 0; u < width; ++u)
-        {
-            const T& raw_input_depth = input_data[v*width + u];
-            if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
-            {
-                input_xyz.push_back(bad_point);
-            }
-            else
-            {
-                double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
-                Eigen::Vector3d point(((u - depth_cx)*depth - depth_Tx) * inv_depth_fx,
-                                      ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy,
-                                      depth);
-                input_xyz.push_back(point);
-            }
-        }
-    }
-
-
-    // Apply the filter
-    int u_plus[] = {0, -1, -1, -1};
-    int v_plus[] = {1, 1, 0, -1};
-    for (unsigned v = 1; v < height-1; ++v)
-    {
-        for (unsigned u = 1; u < width-1; ++u)
-        {
-            double min_angle = 999;
-            for (int i=0; i<4; i++)
-            {
-                Eigen::Vector3d &p0 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]];
-                Eigen::Vector3d &p1 = input_xyz[(v - v_plus[i])*width + u - u_plus[i]];
-
-                if (std::isnan(p0(0)) || std::isnan(p1(0)))
-                {
-                    min_angle = 999;
-                    break;
-                }
-
-                double angle = std::abs(std::acos(p0.dot(p0-p1)/p0.norm()/(p0-p1).norm()));
-                if (std::isnan(angle)) min_angle = 0.0; // todo
-                if (angle < min_angle) min_angle = angle;
-            }
-
-            if (min_angle < threshold_)
-            {
+            if (border_descriptions[y*width + x].traits[pcl::BORDER_TRAIT__VEIL_POINT])
                 if (debug!=nullptr)
-                {
-                    debug_data[v*width + u] = input_data[(v)*width + u];
-                }
-
-                // todo
-                for (int i=-1; i<1; i++)
-                {
-                    for (int j=-1; j<1; j++)
-                    {
-                        output_data[(v + i)*width + u + j] = 0; // todo for float
-                    }
-                }
-            }
+                    debug_data[y*width + x] = input_data[y*width + x];
             else
-            {
-                output_data[v*width + u] = input_data[v*width + u];
-            }
+                output_data[y*width + x] = input_data[y*width + x];
         }
     }
     */
     
+    //---------------------------------------------------------------------------------------------------------------
+    // Filter using pcl::RangeImagePlanar::getSurfaceChangeImage() 
+    //---------------------------------------------------------------------------------------------------------------
+
+    // (method not implemented. weird?)
+
     return output;
 }
 
@@ -251,6 +285,8 @@ void DepthImageVeilingEffectFilterNode::reconfigureCallback(DepthImageVeilingEff
 {
     ROS_INFO("DepthImageVeilingEffectFilter threshold changed to %f", config.threshold);
     filter.setThreshold(config.threshold);
+    filter.setMethod(config.method);
+    filter.setK(config.k);
 }
 
 
