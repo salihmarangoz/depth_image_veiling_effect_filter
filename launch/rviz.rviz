@@ -180,11 +180,18 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Show Trail: false
       Value: true
+    - Class: voxblox_rviz_plugin/VoxbloxMesh
+      Enabled: true
+      Name: VoxbloxMesh
+      Queue Size: 10
+      Topic: /voxblox_node/mesh
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
     Default Light: true
-    Fixed Frame: camera_link
+    Fixed Frame: world
     Frame Rate: 165
   Name: root
   Tools:
@@ -208,7 +215,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 1.558255910873413
+      Distance: 2.032590389251709
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -216,17 +223,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 0.6182695031166077
-        Y: 0.054524779319763184
-        Z: -0.022592315450310707
+        X: 0.961574375629425
+        Y: 0.982042670249939
+        Z: 1.2707853317260742
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5098003149032593
+      Pitch: 0.5798012614250183
       Target Frame: <Fixed Frame>
-      Yaw: 3.732095241546631
+      Yaw: 4.835222244262695
     Saved: ~
 Window Geometry:
   Displays:

@@ -3,12 +3,42 @@
 
   <param name="use_sim_time" value="true"/>
 
-  <node pkg="rosbag" type="play" name="rosbag_player" args="/otherssd/bag/2020_09_11/armbag_2020-09-11-14-38-57_EXPLO_SAMPLING.bag --clock -l" />
+  <node pkg="rosbag" type="play" name="rosbag_player" args="/otherssd/bag/2020_09_11/armbag_2020-09-11-13-48-07_AUTO_SAMPLING.bag --clock -l" />
 
   <node pkg="rviz" type="rviz" name="rviz" args="-d $(find depth_image_veiling_effect_filter)/launch/rviz.rviz"/>
 
-  <node pkg="depth_image_veiling_effect_filter" type="depth_image_veiling_effect_filter_node" name="depth_image_veiling_effect_filter_node"/>
+  <node pkg="depth_image_veiling_effect_filter" type="depth_image_veiling_effect_filter_node" name="depth_image_veiling_effect_filter_node" output="screen"/>
 
   <node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconfigure"/>
+
+  <node pkg="nodelet" type="nodelet" name="point_cloud_xyzrgb_node" args="standalone depth_image_proc/point_cloud_xyzrgb">
+    <remap from="rgb/camera_info" to="/camera/color/camera_info"/>
+    <remap from="rgb/image_rect_color" to="/camera/color/image_raw"/>
+    <remap from="depth_registered/image_rect" to="/camera/aligned_depth_to_color_filtered/image_raw"/>
+    <remap from="depth_registered/points" to="/camera/depth/points"/>
+    <param name="queue_size" value="200"/>
+  </node>
+
+  <node pkg="voxblox_ros" type="tsdf_server" name="voxblox_node" output="screen" args="-alsologtostderr" clear_params="true">
+    <remap from="pointcloud" to="/camera/depth/points"/>
+    <!--<remap from="pointcloud" to="/camera/depth_masked/points_filtered"/>-->
+    <param name="tsdf_voxel_size" value="0.005" />
+    <param name="tsdf_voxels_per_side" value="64" />
+    <param name="voxel_carving_enabled" value="true" />
+    <param name="color_mode" value="color" />
+    <param name="use_tf_transforms" value="true" />
+    <param name="update_mesh_every_n_sec" value="1.0" />
+    <param name="min_time_between_msgs_sec" value="0.0" />
+    <param name="method" value="simple" />
+    <param name="use_const_weight" value="false" />
+    <param name="allow_clear" value="true" />
+    <param name="verbose" value="false" />
+    <param name="max_ray_length_m" value="1.0"/>
+    <param name="enable_icp" value="false"/>
+    <param name="icp_mini_batch_size" value="1000"/>
+    <param name="accumulate_icp_corrections" value="false"/>
+    <param name="publish_tsdf_info" value="true"/>
+    <!-- <param name="start_voxel_subsampling_factor" value="8"/> -->
+  </node>
 
 </launch>

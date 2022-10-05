@@ -157,14 +157,16 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         auto start_time = std::chrono::high_resolution_clock::now();
 
         // Apply the filter
-        int u_plus[] = {0, -1, -1, -1};
-        int v_plus[] = {1, 1, 0, -1};
+        //int u_plus[] = {0, -1, -1, -1};
+        //int v_plus[] = {1, 1, 0, -1};
+        int u_plus[] = {-1, -1, -1, 0, 0, 1, 1, 1}; // todo
+        int v_plus[] = {-1, 0, 1, -1, 1, -1, 0, 1};
         for (unsigned v = 1; v < height-1; ++v)
         {
             for (unsigned u = 1; u < width; ++u)
             {
                 double min_angle = 999;
-                for (int i=0; i<4; i++)
+                for (int i=0; i<8; i++)
                 {
                     Eigen::Vector3d &p0 = input_xyz[(v)*width + u]; // todo?
                     Eigen::Vector3d &p1 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]]; 
