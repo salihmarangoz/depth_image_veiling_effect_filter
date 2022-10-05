@@ -249,8 +249,8 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
 
 DepthImageVeilingEffectFilterNode::DepthImageVeilingEffectFilterNode(ros::NodeHandle &nh, ros::NodeHandle &pnh) : it(pnh), dynrec_server(pnh)
 {
-    pub = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw", 1);
-    pub_debug = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw_debug", 1);
+    pub = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw", 1, true); // TODO: latch only for debug
+    pub_debug = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw_debug", 1, true); // TODO: latch only for debug
     sub = it.subscribeCamera("/camera/aligned_depth_to_color/image_raw", 1, &DepthImageVeilingEffectFilterNode::imageCallback, this);
     dynrec_server.setCallback(boost::bind(&DepthImageVeilingEffectFilterNode::reconfigureCallback, this, _1, _2));
 
