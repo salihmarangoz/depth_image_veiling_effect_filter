@@ -161,14 +161,13 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         int v_plus[] = {1, 1, 0, -1};
         for (unsigned v = 1; v < height-1; ++v)
         {
-            for (unsigned u = 1; u < width-1; ++u)
+            for (unsigned u = 1; u < width; ++u)
             {
                 double min_angle = 999;
                 for (int i=0; i<4; i++)
                 {
-                    Eigen::Vector3d &p0 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]];
-                    //Eigen::Vector3d &p1 = input_xyz[(v - v_plus[i])*width + u - u_plus[i]]; // todo?
-                    Eigen::Vector3d &p1 = input_xyz[(v)*width + u];
+                    Eigen::Vector3d &p0 = input_xyz[(v)*width + u]; // todo?
+                    Eigen::Vector3d &p1 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]]; 
 
                     if (std::isnan(p0(0)) || std::isnan(p1(0)))
                     {
