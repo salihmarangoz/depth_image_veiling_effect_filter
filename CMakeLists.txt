@@ -2,7 +2,24 @@ cmake_minimum_required(VERSION 3.0.2)
 project(depth_image_veiling_effect_filter)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++17)
+add_compile_options(-std=c++14)
+
+set(XSAN "NONE")
+if(XSAN STREQUAL "ASAN")
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+    add_compile_options(-fsanitize=address)
+    add_link_options(-fsanitize=address)
+endif()
+if(XSAN STREQUAL "UBSAN")
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+    add_compile_options(-fsanitize=undefined)
+    add_link_options(-fsanitize=undefined)
+endif()
+if(XSAN STREQUAL "MSAN")
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+    add_compile_options(-fsanitize=leak)
+    add_link_options(-fsanitize=leak)
+endif()
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
