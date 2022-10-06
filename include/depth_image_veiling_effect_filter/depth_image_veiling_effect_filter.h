@@ -22,6 +22,8 @@ public:
     void setThreshold(double threshold);
     void setMethod(int method);
     void setK(int k);
+
+    ros::Publisher pub_pc;
 private:
     double threshold_;
     int k_;

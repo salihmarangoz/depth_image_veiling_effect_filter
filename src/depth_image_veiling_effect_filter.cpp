@@ -6,6 +6,7 @@
 #include <Eigen/Dense>
 #include <pcl/range_image/range_image_planar.h>
 #include <pcl/features/range_image_border_extractor.h>
+#include <sensor_msgs/PointCloud.h>
 
 namespace depth_image_veiling_effect_filter
 {
@@ -130,8 +131,13 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     {
         // convert to xyz
         std::vector<Eigen::Vector3d> input_xyz;
+        std::vector<double> depth_wrt_cam;
         input_xyz.reserve(height * width);
+        depth_wrt_cam.reserve(height * width);
         Eigen::Vector3d bad_point(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+
+        sensor_msgs::PointCloud::Ptr pc = boost::make_shared<sensor_msgs::PointCloud>();
+        pc->header = input->header;
 
         for (unsigned v = 0; v < height; ++v)
         {
@@ -141,6 +147,13 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
                 if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
                 {
                     input_xyz.push_back(bad_point);
+                    /*
+                    geometry_msgs::Point32 p;
+                    p.x = std::numeric_limits<float>::quiet_NaN();
+                    p.y = std::numeric_limits<float>::quiet_NaN();
+                    p.z = std::numeric_limits<float>::quiet_NaN();
+                    pc->points.push_back(p);
+                    */
                 }
                 else
                 {
@@ -149,9 +162,22 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
                                           ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy,
                                           depth);
                     input_xyz.push_back(point);
+                    depth_wrt_cam.push_back(point.norm());
+
+                    /*
+                    geometry_msgs::Point32 p;
+                    p.x = point.x();
+                    p.y = point.y();
+                    p.z = point.z();
+                    pc->points.push_back(p);
+                    */
                 }
             }
         }
+
+        sensor_msgs::ChannelFloat32 ch;
+        ch.name = "angle";
+        ch.values.resize(width*height, 0.0);
 
         // start time
         auto start_time = std::chrono::high_resolution_clock::now();
@@ -159,30 +185,43 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
         // Apply the filter
         //int u_plus[] = {0, -1, -1, -1};
         //int v_plus[] = {1, 1, 0, -1};
-        int u_plus[] = {-1, -1, -1, 0, 0, 1, 1, 1}; // todo
-        int v_plus[] = {-1, 0, 1, -1, 1, -1, 0, 1};
-        for (unsigned v = 1; v < height-1; ++v)
+        for (unsigned v = k_; v < height-k_; ++v)
         {
-            for (unsigned u = 1; u < width; ++u)
+            for (unsigned u = k_; u < width-k_; ++u)
             {
-                double min_angle = 999;
-                for (int i=0; i<8; i++)
+                Eigen::Vector3d &p0 = input_xyz[(v)*width + u]; // todo?
+                Eigen::Vector3d p0_n = p0.normalized();
+                bool remove_point = false;
+                for (int i=-k_; i<k_; i++)
                 {
-                    Eigen::Vector3d &p0 = input_xyz[(v)*width + u]; // todo?
-                    Eigen::Vector3d &p1 = input_xyz[(v + v_plus[i])*width + u + u_plus[i]]; 
-
-                    if (std::isnan(p0(0)) || std::isnan(p1(0)))
+                    for (int j=-k_; j<k_; j++)
                     {
-                        min_angle = 999;
-                        break;
-                    }
+                        if (!depth_image_proc::DepthTraits<T>::valid(input_data[(v + i)*width + u + j]))
+                        {
+                            remove_point = true;
+                            break;
+                        }
 
-                    double angle = std::abs(std::acos(p0.dot(p0-p1)/p0.norm()/(p0-p1).norm()));
-                    if (std::isnan(angle)) min_angle = 0.0; // todo
-                    if (angle < min_angle) min_angle = angle;
+                        if (i==0 && j==0) continue;
+
+                        Eigen::Vector3d &p1 = input_xyz[(v + i)*width + u + j]; 
+                        Eigen::Vector3d diff = p0-p1;
+                        diff.normalize();
+
+                        double angle = std::abs(std::acos(p0_n.dot(diff)));
+
+                        if (angle < threshold_)
+                        {
+                            remove_point = true;
+                            break;
+                        }
+                    }
+                    if (remove_point) break;
                 }
 
-                if (min_angle < threshold_)
+                //ch.values.at(v*width + u) = min_angle;
+
+                if (remove_point)
                 {
                     if (debug!=nullptr)
                     {
@@ -190,11 +229,13 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
                     }
 
                     // todo
-                    for (int i=-1; i<1; i++)
+                    for (int i=-k_; i<k_; i++)
                     {
-                        for (int j=-1; j<1; j++)
+                        for (int j=-k_; j<k_; j++)
                         {
                             output_data[(v + i)*width + u + j] = 0; // todo for float
+                            if (debug!=nullptr)
+                                debug_data[(v + i)*width + u + j] = input_data[(v)*width + u]; // todo for float
                         }
                     }
                 }
@@ -204,6 +245,9 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
                 }
             }
         }
+
+        //pc->channels.push_back(ch);
+        //pub_pc.publish(pc);
 
         // end time
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -253,6 +297,7 @@ DepthImageVeilingEffectFilterNode::DepthImageVeilingEffectFilterNode(ros::NodeHa
     pub = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw", 1, true); // TODO: latch only for debug
     pub_debug = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw_debug", 1, true); // TODO: latch only for debug
     sub = it.subscribeCamera("/camera/aligned_depth_to_color/image_raw", 1, &DepthImageVeilingEffectFilterNode::imageCallback, this);
+    filter.pub_pc = pnh.advertise<sensor_msgs::PointCloud>("points", 1, true);
     dynrec_server.setCallback(boost::bind(&DepthImageVeilingEffectFilterNode::reconfigureCallback, this, _1, _2));
 
     while (ros::ok())
