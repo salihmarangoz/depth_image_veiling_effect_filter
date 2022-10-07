@@ -276,64 +276,10 @@ Visualization Manager:
       Use rainbow: true
       Value: true
     - Class: rviz/TF
-      Enabled: true
+      Enabled: false
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        arm_base:
-          Value: true
-        arm_base_link:
-          Value: true
-        arm_base_link_inertia:
-          Value: true
-        arm_flange:
-          Value: true
-        arm_forearm_link:
-          Value: true
-        arm_shoulder_link:
-          Value: true
-        arm_tool0:
-          Value: true
-        arm_tool0_controller:
-          Value: true
-        arm_upper_arm_link:
-          Value: true
-        arm_wrist_1_link:
-          Value: true
-        arm_wrist_2_link:
-          Value: true
-        arm_wrist_3_link:
-          Value: true
-        base_link:
-          Value: true
-        cam1:
-          Value: true
-        cam2:
-          Value: true
-        cam3:
-          Value: true
-        camara_mount_link:
-          Value: true
-        camera_bottom_screw_frame:
-          Value: true
-        camera_color_optical_frame:
-          Value: true
-        camera_link:
-          Value: true
-        camera_lower_mount:
-          Value: true
-        camera_upper_mount:
-          Value: true
-        map:
-          Value: true
-        odom:
-          Value: true
-        platform_base:
-          Value: true
-        tracker:
-          Value: true
-        world:
-          Value: true
       Marker Alpha: 1
       Marker Scale: 1
       Name: TF
@@ -341,44 +287,9 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Tree:
-        world:
-          map:
-            odom:
-              base_link:
-                cam1:
-                  {}
-                cam2:
-                  {}
-                cam3:
-                  {}
-                platform_base:
-                  arm_base_link:
-                    arm_base:
-                      arm_tool0_controller:
-                        {}
-                    arm_base_link_inertia:
-                      arm_shoulder_link:
-                        arm_upper_arm_link:
-                          arm_forearm_link:
-                            arm_wrist_1_link:
-                              arm_wrist_2_link:
-                                arm_wrist_3_link:
-                                  arm_flange:
-                                    arm_tool0:
-                                      camara_mount_link:
-                                        camera_bottom_screw_frame:
-                                          camera_link:
-                                            {}
-                                          camera_lower_mount:
-                                            {}
-                                          camera_upper_mount:
-                                            {}
-                                      camera_color_optical_frame:
-                                        {}
-                tracker:
-                  {}
+        {}
       Update Interval: 0
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -407,7 +318,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 1.1832021474838257
+      Distance: 1.5036309957504272
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -415,17 +326,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 2.1928093433380127
-        Y: 0.7033361196517944
-        Z: 1.7241339683532715
+        X: 1.3300625085830688
+        Y: 0.7422612905502319
+        Z: 2.0741634368896484
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.3452032506465912
+      Pitch: 0.39479848742485046
       Target Frame: <Fixed Frame>
-      Yaw: 5.474664211273193
+      Yaw: 3.6878085136413574
     Saved: ~
 Window Geometry:
   Displays:
