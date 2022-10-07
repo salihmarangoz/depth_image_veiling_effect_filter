@@ -9,6 +9,7 @@
 #include <sensor_msgs/PointCloud.h>
 #include <pcl/filters/shadowpoints.h>
 #include <pcl/features/integral_image_normal.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 
 namespace depth_image_veiling_effect_filter
 {
@@ -257,7 +258,7 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     }
 
     //---------------------------------------------------------------------------------------------------------------
-    // Filter using 
+    // Filter using pcl::IntegralImageNormalEstimation + pcl::ShadowPoints
     //---------------------------------------------------------------------------------------------------------------
 
     if (method_ == 2)
@@ -357,6 +358,72 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
 
     }
 
+    //---------------------------------------------------------------------------------------------------------------
+    // Filter using pcl::StatisticalOutlierRemoval
+    //---------------------------------------------------------------------------------------------------------------
+
+    if (method_ == 3)
+    {
+        // convert to xyz
+        pcl::PointCloud<pcl::PointXYZ>::Ptr pc_xyz (new pcl::PointCloud<pcl::PointXYZ>);
+        pc_xyz->points.reserve(height * width);
+        pc_xyz->width = width;
+        pc_xyz->height = height;
+        pc_xyz->is_dense = false;
+        float bad_value = std::numeric_limits<float>::quiet_NaN();
+
+        sensor_msgs::PointCloud::Ptr pc = boost::make_shared<sensor_msgs::PointCloud>();
+        pc->header = input->header;
+
+        for (unsigned v = 0; v < height; ++v)
+        {
+            for (unsigned u = 0; u < width; ++u)
+            {
+                const T& raw_input_depth = input_data[v*width + u];
+                if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
+                {
+                    pc_xyz->points.push_back(pcl::PointXYZ(bad_value,bad_value,bad_value));
+                }
+                else
+                {
+                    double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
+                    float x = ((u - depth_cx)*depth - depth_Tx) * inv_depth_fx;
+                    float y = ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy;
+                    float z = depth;
+                    pc_xyz->points.push_back(pcl::PointXYZ(x,y,z));
+                }
+            }
+        }
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        // filter points
+        pcl::Indices indices;
+        pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor(true);
+        sor.setInputCloud(pc_xyz);
+        sor.setMeanK(k_*2+1);
+        sor.setStddevMulThresh(threshold_);
+        sor.filter(indices);
+
+        for (int i=0; i<indices.size(); i++)
+        {
+            output_data[indices[i]] = input_data[indices[i]];
+        }
+
+        if (debug!=nullptr)
+        {
+            // extra computation, but this shouldn't be used in normal scenarios
+            sor.setNegative(true);
+            sor.filter(indices);
+            for (int i=0; i<indices.size(); i++)
+            {
+                debug_data[indices[i]] = input_data[indices[i]];
+            }
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        printf("custom method took %d ms.\n", std::chrono::duration_cast<std::chrono::milliseconds>(end_time-start_time).count());
+    }
 
     //---------------------------------------------------------------------------------------------------------------
     // Filter using pcl::RangeImageBorderExtractor
