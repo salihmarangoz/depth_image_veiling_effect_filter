@@ -20,9 +20,9 @@
     <param name="exact_sync" value="1"/> <!-- TODO: CAUTION! -->
   </node>
 
+<!--
   <node pkg="voxblox_ros" type="tsdf_server" name="voxblox_node" output="screen" args="-alsologtostderr" clear_params="true">
     <remap from="pointcloud" to="/camera/depth/points"/>
-    <!--<remap from="pointcloud" to="/camera/depth_masked/points_filtered"/>-->
     <param name="tsdf_voxel_size" value="0.0025" />
     <param name="tsdf_voxels_per_side" value="64" />
     <param name="voxel_carving_enabled" value="true" />
@@ -39,7 +39,7 @@
     <param name="icp_mini_batch_size" value="1000"/>
     <param name="accumulate_icp_corrections" value="false"/>
     <param name="publish_tsdf_info" value="true"/>
-    <!-- <param name="start_voxel_subsampling_factor" value="8"/> -->
   </node>
+ -->
 
 </launch>

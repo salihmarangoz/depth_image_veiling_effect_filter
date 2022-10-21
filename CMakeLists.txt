@@ -7,7 +7,7 @@ add_compile_options(-std=c++14)
 set(XSAN "NONE")
 if(XSAN STREQUAL "ASAN")
     set(CMAKE_BUILD_TYPE "RelWithDebInfo")
-    add_compile_options(-fsanitize=address)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address)
 endif()
 if(XSAN STREQUAL "UBSAN")
@@ -39,9 +39,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
-find_package(PCL REQUIRED)
-
-add_definitions(${PCL_DEFINITIONS})
+find_package(PCL REQUIRED common)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -147,6 +145,9 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
 )
 
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
   src/depth_image_veiling_effect_filter.cpp
@@ -176,15 +177,17 @@ add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catk
 target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   ${PROJECT_NAME}
-  Eigen3::Eigen
   ${PCL_LIBRARIES}
 )
 
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
-  Eigen3::Eigen
   ${PCL_LIBRARIES}
 )
+
+# In the code I tried casting quiet Nan to int. I know that the result is 0 so I am silencing the warning.
+target_compile_options(${PROJECT_NAME}_node PRIVATE -Wno-overflow)
+target_compile_options(${PROJECT_NAME} PRIVATE -Wno-overflow)
 
 #############
 ## Install ##

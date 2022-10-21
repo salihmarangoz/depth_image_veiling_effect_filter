@@ -1,7 +1,7 @@
-
 #include <ros/ros.h>
 #include "depth_image_veiling_effect_filter/depth_image_veiling_effect_filter.h"
 #include <depth_image_proc/depth_traits.h>
+#include <depth_image_proc/depth_conversions.h>
 #include <image_geometry/pinhole_camera_model.h>
 #include <Eigen/Dense>
 #include <pcl/range_image/range_image_planar.h>
@@ -10,78 +10,113 @@
 #include <pcl/filters/shadowpoints.h>
 #include <pcl/features/integral_image_normal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/radius_outlier_removal.h>
 
 namespace depth_image_veiling_effect_filter
 {
 
-DepthImageVeilingEffectFilter::DepthImageVeilingEffectFilter(double threshold)
-{
-    setThreshold(threshold_);
-}
+DepthImageVeilingEffectFilter::DepthImageVeilingEffectFilter(){}
 
-void DepthImageVeilingEffectFilter::setThreshold(double threshold)
-{
-    // TODO: boundary check!
-    threshold_ = threshold;
-}
 
-void DepthImageVeilingEffectFilter::setK(int k)
+// NOTE: range_max works differently compared to depth_image_proc!
+// This function removes points with higher range value. depth_image_proc::convert replaces invalid points with range_max
+template<typename T>
+pcl::PointCloud<pcl::PointXYZ>::Ptr DepthImageVeilingEffectFilter::convertAndFilter(const sensor_msgs::ImagePtr& depth_msg, const sensor_msgs::CameraInfoConstPtr& camera_info, double range_max)
 {
-    k_ = k;
-}
+    image_geometry::PinholeCameraModel model;
+    model.fromCameraInfo(camera_info);
 
-void DepthImageVeilingEffectFilter::setMethod(int method)
-{
-    method_ = method;
+    unsigned int height = depth_msg->height;
+    unsigned int width = depth_msg->width;
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_msg(new pcl::PointCloud<pcl::PointXYZ>);
+    cloud_msg->points.resize(height * width);
+    cloud_msg->width = width;
+    cloud_msg->height = height;
+    cloud_msg->is_dense = false;
+
+    // Use correct principal point from calibration
+    float center_x = model.cx();
+    float center_y = model.cy();
+
+    // Combine unit conversion (if necessary) with scaling by focal length for computing (X,Y)
+    double unit_scaling = depth_image_proc::DepthTraits<T>::toMeters( T(1) );
+    float constant_x = unit_scaling / model.fx();
+    float constant_y = unit_scaling / model.fy();
+    float bad_point = std::numeric_limits<float>::quiet_NaN();
+
+    pcl::PointCloud<pcl::PointXYZ>::iterator pt_iter = cloud_msg->begin();
+    T* depth_row = reinterpret_cast<T*>(&depth_msg->data[0]);
+    int row_step = depth_msg->step / sizeof(T);
+    for (int v = 0; v < (int)cloud_msg->height; ++v, depth_row += row_step)
+    {
+        for (int u = 0; u < (int)cloud_msg->width; ++u)
+        {
+            pcl::PointXYZ& pt = *pt_iter++;
+            T depth = depth_row[u];
+
+            // Missing points denoted by NaNs
+            if (!depth_image_proc::DepthTraits<T>::valid(depth))
+            {
+                pt.x = pt.y = pt.z = bad_point;
+                depth_row[u] = bad_point;
+                continue;
+            }
+
+            double depth_meters = depth_image_proc::DepthTraits<T>::toMeters(depth);
+
+            if (range_max < depth_meters)
+            {
+                pt.x = pt.y = pt.z = bad_point;
+                depth_row[u] = bad_point;
+                continue;
+            }
+
+            // Fill in XYZ
+            pt.x = (u - center_x) * depth * constant_x;
+            pt.y = (v - center_y) * depth * constant_y;
+            pt.z = depth_meters;
+        }
+    }
+
+    return cloud_msg;
 }
 
 sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug)
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    sensor_msgs::ImagePtr out = nullptr;
+
     // TODO: check only pinhole camera model is supported
 
     if (input->encoding == sensor_msgs::image_encodings::TYPE_16UC1)
     {
-        return process_<uint16_t>(input, info, debug);
+        out = process_<uint16_t>(input, info, debug);
     }
     else if (input->encoding == sensor_msgs::image_encodings::TYPE_32FC1)
     {
-        return process_<float>(input, info, debug);
+        out = process_<float>(input, info, debug);
     }
     else
     {
         ROS_ERROR_THROTTLE(1.0, "Depth image has unsupported encoding [%s]", input->encoding.c_str());
-        return nullptr;
     }
+
+    if (out != nullptr)
+    {
+        auto end_time = std::chrono::high_resolution_clock::now();
+        printf("Filtering took %ld ms.\n", std::chrono::duration_cast<std::chrono::milliseconds>(end_time-start_time).count());
+    }
+    
+    return out;
 }
 
 template<typename T>
 sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs::ImageConstPtr& input, const sensor_msgs::CameraInfoConstPtr& info, sensor_msgs::ImagePtr debug)
 {
-    // Prepare output image
-    sensor_msgs::ImagePtr output = boost::make_shared<sensor_msgs::Image>();
-    output->header = input->header;
-    output->height = input->height;
-    output->width = input->width;
-    output->encoding = input->encoding;
-    output->is_bigendian = input->is_bigendian;
-    output->step = input->step;
-    output->data.resize(output->height * output->step);
-    depth_image_proc::DepthTraits<T>::initializeBuffer(output->data);
-
-
-    // Prepare debug image
-    if (debug!=nullptr)
-    {
-        debug->header = input->header;
-        debug->height = input->height;
-        debug->width = input->width;
-        debug->encoding = input->encoding;
-        debug->is_bigendian = input->is_bigendian;
-        debug->step = input->step;
-        debug->data.resize(debug->height * debug->step);
-        depth_image_proc::DepthTraits<T>::initializeBuffer(debug->data);
-    }
-
+    // Copy input image
+    sensor_msgs::ImagePtr filtered_img = boost::make_shared<sensor_msgs::Image>();
+    (*filtered_img) = (*input);
 
     // Load camera model and extract all the parameters we need
     image_geometry::PinholeCameraModel depth_model;
@@ -93,372 +128,131 @@ sensor_msgs::ImagePtr DepthImageVeilingEffectFilter::process_(const sensor_msgs:
     unsigned width = input->width;
     unsigned height = input->height;
 
-    // Cast data pointers
+    // Cast data pointers to depth images
     const T* input_data = reinterpret_cast<const T*>(&input->data[0]);
-    T* output_data = reinterpret_cast<T*>(&output->data[0]);
-    T* debug_data = nullptr;
-    if (debug!=nullptr)
-    {
-        debug_data = reinterpret_cast<T*>(&debug->data[0]);
-    }
+    T* filtered_data = reinterpret_cast<T*>(&filtered_img->data[0]);
 
-    //---------------------------------------------------------------------------------------------------------------
-    // Filter using pcl::RangeImagePlanar::getImpactAngleImageBasedOnLocalNormals()
-    //---------------------------------------------------------------------------------------------------------------
-    if (method_ == 0)
+    //==================================================================================
+    //==================== DEPTH TO POINTCLOUD + CONDITIONAL FILTER ====================
+    //==================================================================================
+    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_pc = convertAndFilter<T>(filtered_img, info, p_max_range); // this command filters input img as well!
+
+    //==================================================================================
+    //==================== SURFACE NORMAL BASED FILTERING ==============================
+    //==================================================================================
+
+    if (p_normal_based_filtering_method == 0)
     {
+        //------------------------------------------------------------------------------
+        // Disabled filtering
+        //------------------------------------------------------------------------------
+
+        // todo
+    }
+    else if (p_normal_based_filtering_method == 1)
+    {
+        //------------------------------------------------------------------------------
+        // Filter using pcl::RangeImagePlanar::getImpactAngleImageBasedOnLocalNormals
+        //------------------------------------------------------------------------------
+
         pcl::RangeImagePlanar rip;
-        rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
-        float* angles = rip.getImpactAngleImageBasedOnLocalNormals(k_);
+        rip.setDepthImage(filtered_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
+        float* angles = rip.getImpactAngleImageBasedOnLocalNormals(p_rip_radius);
         for (int i=0; i<width*height; i++)
         {
-            if (angles[i] > threshold_) // possibly handles nan values
+            if (angles[i] < p_rip_threshold)
             {
-                output_data[i] = input_data[i];
+                filtered_data[i] = std::numeric_limits<float>::quiet_NaN();
             }
-            else
-            {
-                if (debug!=nullptr)
-                    debug_data[i] = input_data[i];
-            }
-            
         }
         delete[] angles;
     }
-
-    //---------------------------------------------------------------------------------------------------------------
-    // Filter using custom method
-    //---------------------------------------------------------------------------------------------------------------
-
-    if (method_ == 1)
+    else if (p_normal_based_filtering_method == 2)
     {
-        // convert to xyz
-        std::vector<Eigen::Vector3d> input_xyz;
-        std::vector<double> depth_wrt_cam;
-        input_xyz.reserve(height * width);
-        depth_wrt_cam.reserve(height * width);
-        Eigen::Vector3d bad_point(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-
-        sensor_msgs::PointCloud::Ptr pc = boost::make_shared<sensor_msgs::PointCloud>();
-        pc->header = input->header;
-
-        for (unsigned v = 0; v < height; ++v)
-        {
-            for (unsigned u = 0; u < width; ++u)
-            {
-                const T& raw_input_depth = input_data[v*width + u];
-                if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
-                {
-                    input_xyz.push_back(bad_point);
-                    /*
-                    geometry_msgs::Point32 p;
-                    p.x = std::numeric_limits<float>::quiet_NaN();
-                    p.y = std::numeric_limits<float>::quiet_NaN();
-                    p.z = std::numeric_limits<float>::quiet_NaN();
-                    pc->points.push_back(p);
-                    */
-                }
-                else
-                {
-                    double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
-                    Eigen::Vector3d point(((u - depth_cx)*depth - depth_Tx) * inv_depth_fx,
-                                          ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy,
-                                          depth);
-                    input_xyz.push_back(point);
-                    depth_wrt_cam.push_back(point.norm());
-
-                    /*
-                    geometry_msgs::Point32 p;
-                    p.x = point.x();
-                    p.y = point.y();
-                    p.z = point.z();
-                    pc->points.push_back(p);
-                    */
-                }
-            }
-        }
-
-        sensor_msgs::ChannelFloat32 ch;
-        ch.name = "angle";
-        ch.values.resize(width*height, 0.0);
-
-        // start time
-        auto start_time = std::chrono::high_resolution_clock::now();
-
-        // Apply the filter
-        //int u_plus[] = {0, -1, -1, -1};
-        //int v_plus[] = {1, 1, 0, -1};
-        for (unsigned v = k_; v < height-k_; ++v)
-        {
-            for (unsigned u = k_; u < width-k_; ++u)
-            {
-                Eigen::Vector3d &p0 = input_xyz[(v)*width + u]; // todo?
-                Eigen::Vector3d p0_n = p0.normalized();
-                bool remove_point = false;
-                for (int i=-k_; i<k_; i++)
-                {
-                    for (int j=-k_; j<k_; j++)
-                    {
-                        if (!depth_image_proc::DepthTraits<T>::valid(input_data[(v + i)*width + u + j]))
-                        {
-                            remove_point = true;
-                            break;
-                        }
-
-                        if (i==0 && j==0) continue;
-
-                        Eigen::Vector3d &p1 = input_xyz[(v + i)*width + u + j]; 
-                        Eigen::Vector3d diff = p0-p1;
-                        diff.normalize();
-
-                        double angle = std::abs(std::acos(p0_n.dot(diff)));
-
-                        if (angle < threshold_)
-                        {
-                            remove_point = true;
-                            break;
-                        }
-                    }
-                    if (remove_point) break;
-                }
-
-                //ch.values.at(v*width + u) = min_angle;
-
-                if (remove_point)
-                {
-                    if (debug!=nullptr)
-                    {
-                        debug_data[v*width + u] = input_data[(v)*width + u];
-                    }
-
-                    // todo
-                    for (int i=-k_; i<k_; i++)
-                    {
-                        for (int j=-k_; j<k_; j++)
-                        {
-                            output_data[(v + i)*width + u + j] = 0; // todo for float
-                            if (debug!=nullptr)
-                                debug_data[(v + i)*width + u + j] = input_data[(v)*width + u]; // todo for float
-                        }
-                    }
-                }
-                else
-                {
-                    output_data[v*width + u] = input_data[v*width + u];
-                }
-            }
-        }
-
-        //pc->channels.push_back(ch);
-        //pub_pc.publish(pc);
-
-        // end time
-        auto end_time = std::chrono::high_resolution_clock::now();
-        printf("custom method took %d ms.\n", std::chrono::duration_cast<std::chrono::milliseconds>(end_time-start_time).count());
-    }
-
-    //---------------------------------------------------------------------------------------------------------------
-    // Filter using pcl::IntegralImageNormalEstimation + pcl::ShadowPoints
-    //---------------------------------------------------------------------------------------------------------------
-
-    if (method_ == 2)
-    {
-        // convert to xyz
-        pcl::PointCloud<pcl::PointXYZ>::Ptr pc_xyz (new pcl::PointCloud<pcl::PointXYZ>);
-        pc_xyz->points.reserve(height * width);
-        pc_xyz->width = width;
-        pc_xyz->height = height;
-        pc_xyz->is_dense = false;
-        float bad_value = std::numeric_limits<float>::quiet_NaN();
-
-        sensor_msgs::PointCloud::Ptr pc = boost::make_shared<sensor_msgs::PointCloud>();
-        pc->header = input->header;
-
-        for (unsigned v = 0; v < height; ++v)
-        {
-            for (unsigned u = 0; u < width; ++u)
-            {
-                const T& raw_input_depth = input_data[v*width + u];
-                if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
-                {
-                    pc_xyz->points.push_back(pcl::PointXYZ(bad_value,bad_value,bad_value));
-                }
-                else
-                {
-                    double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
-                    float x = ((u - depth_cx)*depth - depth_Tx) * inv_depth_fx;
-                    float y = ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy;
-                    float z = depth;
-                    pc_xyz->points.push_back(pcl::PointXYZ(x,y,z));
-                }
-            }
-        }
-
-        auto start_time = std::chrono::high_resolution_clock::now();
+        //------------------------------------------------------------------------------
+        // Filter using pcl::IntegralImageNormalEstimation + pcl::ShadowPoints
+        //------------------------------------------------------------------------------
 
         // surface normal estimation
         pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
         pcl::IntegralImageNormalEstimation<pcl::PointXYZ, pcl::Normal> ne;
-        ne.setNormalEstimationMethod (ne.COVARIANCE_MATRIX); // todo: parametric COVARIANCE_MATRIX
-        ne.setMaxDepthChangeFactor(0.02f);
-        ne.setNormalSmoothingSize((float)(k_*2+1)); // 10.0f
-        ne.setDepthDependentSmoothing(true);
-        ne.setViewPoint(0,0,0);
+        ne.setNormalEstimationMethod( (pcl::IntegralImageNormalEstimation<pcl::PointXYZ, pcl::Normal>::NormalEstimationMethod) p_sp_normal_estimation_method);
+        ne.setMaxDepthChangeFactor(p_sp_max_depth_change_factor);
+        ne.setNormalSmoothingSize(p_sp_normal_smoothing_size);
+        ne.setDepthDependentSmoothing(p_sp_use_depth_dependent_smoothing);
         ne.useSensorOriginAsViewPoint();
-        ne.setInputCloud(pc_xyz);
+        ne.setInputCloud(filtered_pc);
         ne.compute(*normals);
 
         // filter points
         pcl::Indices indices;
         pcl::ShadowPoints<pcl::PointXYZ, pcl::Normal> sp(true);
-        sp.setInputCloud(pc_xyz);
+        sp.setInputCloud(filtered_pc);
         sp.setNormals(normals);
-        sp.setThreshold(threshold_);
+        sp.setThreshold(p_sp_threshold);
+        sp.setNegative(true);
         sp.filter(indices);
 
         for (int i=0; i<indices.size(); i++)
         {
-            output_data[indices[i]] = input_data[indices[i]];
+            filtered_pc->at(i) = pcl::PointXYZ(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+            filtered_data[indices[i]] = std::numeric_limits<float>::quiet_NaN();
         }
-
-        if (debug!=nullptr)
-        {
-            // extra computation, but this shouldn't be used in normal scenarios
-            sp.setNegative(true);
-            sp.filter(indices);
-            for (int i=0; i<indices.size(); i++)
-            {
-                debug_data[indices[i]] = input_data[indices[i]];
-            }
-        }
-
-        /*
-        for (unsigned v = 0; v < height; ++v)
-        {
-            for (unsigned u = 0; u < width; ++u)
-            {
-                const T& raw_input_depth = input_data[v*width + u];
-
-                if (removed_idx[v*width + u])
-                {
-                    output_data[v*width + u] = input_data[v*width + u];
-                }
-                else
-                {
-                    if (debug!=nullptr)
-                        debug_data[v*width + u] = input_data[v*width + u];
-                }
-
-            }
-        }
-        */
-
-        auto end_time = std::chrono::high_resolution_clock::now();
-        printf("custom method took %d ms.\n", std::chrono::duration_cast<std::chrono::milliseconds>(end_time-start_time).count());
-
     }
 
-    //---------------------------------------------------------------------------------------------------------------
-    // Filter using pcl::StatisticalOutlierRemoval
-    //---------------------------------------------------------------------------------------------------------------
+    //==================================================================================
+    //==================== OUTLIER / STATISTICAL FILTERING =============================
+    //==================================================================================
 
-    if (method_ == 3)
+    
+    if (p_statistical_filtering_method == 0)
     {
-        // convert to xyz
-        pcl::PointCloud<pcl::PointXYZ>::Ptr pc_xyz (new pcl::PointCloud<pcl::PointXYZ>);
-        pc_xyz->points.reserve(height * width);
-        pc_xyz->width = width;
-        pc_xyz->height = height;
-        pc_xyz->is_dense = false;
-        float bad_value = std::numeric_limits<float>::quiet_NaN();
-
-        sensor_msgs::PointCloud::Ptr pc = boost::make_shared<sensor_msgs::PointCloud>();
-        pc->header = input->header;
-
-        for (unsigned v = 0; v < height; ++v)
-        {
-            for (unsigned u = 0; u < width; ++u)
-            {
-                const T& raw_input_depth = input_data[v*width + u];
-                if (!depth_image_proc::DepthTraits<T>::valid(raw_input_depth))
-                {
-                    pc_xyz->points.push_back(pcl::PointXYZ(bad_value,bad_value,bad_value));
-                }
-                else
-                {
-                    double depth = depth_image_proc::DepthTraits<T>::toMeters(raw_input_depth);
-                    float x = ((u - depth_cx)*depth - depth_Tx) * inv_depth_fx;
-                    float y = ((v - depth_cy)*depth - depth_Ty) * inv_depth_fy;
-                    float z = depth;
-                    pc_xyz->points.push_back(pcl::PointXYZ(x,y,z));
-                }
-            }
-        }
-
-        auto start_time = std::chrono::high_resolution_clock::now();
+        //---------------------------------------------------------------------------------------------------------------
+        // Disabled filtering
+        //---------------------------------------------------------------------------------------------------------------
+    }
+    if (p_statistical_filtering_method == 1)
+    {
+        //---------------------------------------------------------------------------------------------------------------
+        // Filter using pcl::StatisticalOutlierRemoval
+        //---------------------------------------------------------------------------------------------------------------
 
         // filter points
         pcl::Indices indices;
         pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor(true);
-        sor.setInputCloud(pc_xyz);
-        sor.setMeanK(k_*2+1);
-        sor.setStddevMulThresh(threshold_);
+        sor.setInputCloud(filtered_pc);
+        sor.setMeanK(p_sor_mean_k);
+        sor.setStddevMulThresh(p_sor_stddevmulthresh);
+        sor.setNegative(true);
         sor.filter(indices);
 
         for (int i=0; i<indices.size(); i++)
         {
-            output_data[indices[i]] = input_data[indices[i]];
+            //filtered_pc->at(i) = pcl::PointXYZ(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+            filtered_data[indices[i]] = std::numeric_limits<float>::quiet_NaN();
         }
+    }
 
-        if (debug!=nullptr)
+    // NOTE: IF YOU WOULD LIKE TO ADD ONE MORE STEP TO THE PIPELINE UNCOMMENT LINES STARTING WITH "filtered_pc->at(i)" IN THIS SECTION
+
+    //==================================================================================
+
+    // Prepare the debug image
+    if (debug!=nullptr)
+    {
+        (*debug) = (*input); // copy from input
+        T* debug_data = reinterpret_cast<T*>(&debug->data[0]);
+
+        for (int i=0; i<height*width; i++)
         {
-            // extra computation, but this shouldn't be used in normal scenarios
-            sor.setNegative(true);
-            sor.filter(indices);
-            for (int i=0; i<indices.size(); i++)
+            if (depth_image_proc::DepthTraits<T>::valid(filtered_data[i]))
             {
-                debug_data[indices[i]] = input_data[indices[i]];
+                debug_data[i] = std::numeric_limits<float>::quiet_NaN();
             }
         }
-
-        auto end_time = std::chrono::high_resolution_clock::now();
-        printf("custom method took %d ms.\n", std::chrono::duration_cast<std::chrono::milliseconds>(end_time-start_time).count());
     }
 
-    //---------------------------------------------------------------------------------------------------------------
-    // Filter using pcl::RangeImageBorderExtractor
-    // Needs compiling PCL:
-    // Download PCL 1.10.0, comment lines 152 and 153 in range_image_border_extractor.cpp, compile, and install
-    //---------------------------------------------------------------------------------------------------------------
-    /*
-    pcl::RangeImagePlanar rip;
-    rip.setDepthImage(input_data, width, height, depth_cx, depth_cy, depth_model.fx(), depth_model.fy());
-    pcl::RangeImageBorderExtractor ribe;
-    ribe.setRangeImage(&rip);
-    pcl::PointCloud<pcl::BorderDescription> border_descriptions;
-    border_descriptions.points.reserve(width*height);
-    ribe.compute (border_descriptions);
-
-    for (int y=0; y< height; ++y)
-    {
-        for (int x=0; x< width; ++x)
-        {
-            if (border_descriptions[y*width + x].traits[pcl::BORDER_TRAIT__VEIL_POINT])
-                if (debug!=nullptr)
-                    debug_data[y*width + x] = input_data[y*width + x];
-            else
-                output_data[y*width + x] = input_data[y*width + x];
-        }
-    }
-    */
-    
-    //---------------------------------------------------------------------------------------------------------------
-    // Filter using pcl::RangeImagePlanar::getSurfaceChangeImage() 
-    //---------------------------------------------------------------------------------------------------------------
-
-    // (method not implemented. weird?)
-
-    return output;
+    return filtered_img;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -468,7 +262,7 @@ DepthImageVeilingEffectFilterNode::DepthImageVeilingEffectFilterNode(ros::NodeHa
     pub = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw", 1, true); // TODO: latch only for debug
     pub_debug = it.advertiseCamera("/camera/aligned_depth_to_color_filtered/image_raw_debug", 1, true); // TODO: latch only for debug
     sub = it.subscribeCamera("/camera/aligned_depth_to_color/image_raw", 1, &DepthImageVeilingEffectFilterNode::imageCallback, this);
-    filter.pub_pc = pnh.advertise<sensor_msgs::PointCloud>("points", 1, true);
+    //filter.pub_pc = pnh.advertise<sensor_msgs::PointCloud>("points", 1, true);
     dynrec_server.setCallback(boost::bind(&DepthImageVeilingEffectFilterNode::reconfigureCallback, this, _1, _2));
 
     while (ros::ok())
@@ -500,10 +294,22 @@ void DepthImageVeilingEffectFilterNode::imageCallback(const sensor_msgs::ImageCo
 
 void DepthImageVeilingEffectFilterNode::reconfigureCallback(DepthImageVeilingEffectFilterConfig &config, uint32_t level)
 {
-    ROS_INFO("DepthImageVeilingEffectFilter threshold changed to %f", config.threshold);
-    filter.setThreshold(config.threshold);
-    filter.setMethod(config.method);
-    filter.setK(config.k);
+    filter.set_max_range(config.max_range);
+    //----------------------------
+    filter.set_normal_based_filtering_method(config.normal_based_filtering_method);
+    filter.set_rip_radius(config.rip_radius);
+    filter.set_rip_threshold(config.rip_threshold);
+    filter.set_sp_normal_estimation_method(config.sp_normal_estimation_method);
+    filter.set_sp_normal_smoothing_size(config.sp_normal_smoothing_size);
+    filter.set_sp_max_depth_change_factor(config.sp_max_depth_change_factor);
+    filter.set_sp_use_depth_dependent_smoothing(config.sp_use_depth_dependent_smoothing);
+    filter.set_sp_threshold(config.sp_threshold);
+    //----------------------------
+    filter.set_statistical_filtering_method(config.statistical_filtering_method);
+    filter.set_sor_mean_k(config.sor_mean_k);
+    filter.set_sor_stddevmulthresh(config.sor_stddevmulthresh);
+
+    
 }
 
 
